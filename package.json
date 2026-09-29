@@ -1,0 +1,24 @@
+{
+  "name": "pact-contracts",
+  "version": "6.0.0",
+  "private": true,
+  "description": "Pact V6 settlement contracts (unaudited Avalanche Fuji prototype).",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "compile": "node scripts/pact-settlement-v6-artifact.mjs",
+    "test": "npm run compile && node scripts/run-tests.mjs",
+    "verify:bytecode": "node scripts/verify-fuji-bytecode.mjs"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-network-helpers": "3.0.11",
+    "@nomicfoundation/hardhat-node-test-runner": "3.1.0",
+    "@nomicfoundation/hardhat-viem": "3.0.9",
+    "hardhat": "3.14.0",
+    "solc": "0.8.30",
+    "viem": "2.55.19"
+  }
+}

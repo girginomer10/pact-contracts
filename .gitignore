@@ -1,0 +1,8 @@
+node_modules/
+.hardhat/
+artifacts/
+cache/
+verification/
+.env
+.env.*
+.DS_Store
