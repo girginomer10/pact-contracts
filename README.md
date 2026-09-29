@@ -64,15 +64,16 @@ more than the pool, and cannot block the timeout refund.
 
 ## Avalanche Fuji deployment
 
-Chain ID 43113, deployed at block 58628167. Stake token: USDC on Fuji
+Chain ID 43113, deployed at block 58628167. The source code of all four contracts is verified on
+Snowtrace. Stake token: USDC on Fuji
 (`0x5425890298aed601595a70AB815c96711a31Bc65`).
 
-| Contract | Address |
-|---|---|
-| PactRegistryV6 | [`0xAC8eb93e608D78521D6Cf4d3d74b1d162e5964F0`](https://testnet.snowtrace.io/address/0xAC8eb93e608D78521D6Cf4d3d74b1d162e5964F0) |
-| PactVaultV6 | [`0x3bAb5dE2D7Ed73848d2f377F43A39c757f199a43`](https://testnet.snowtrace.io/address/0x3bAb5dE2D7Ed73848d2f377F43A39c757f199a43) |
-| PactSettlementModuleV6 (Walking) | [`0xd3Caa4821C10443aa0CEaa34e87c9D0efF82D411`](https://testnet.snowtrace.io/address/0xd3Caa4821C10443aa0CEaa34e87c9D0efF82D411) |
-| PactSettlementModuleV6 (Working) | [`0x40F3b5bc99f55c8286438c2871C388d5eABBF332`](https://testnet.snowtrace.io/address/0x40F3b5bc99f55c8286438c2871C388d5eABBF332) |
+| Contract | Address | Source |
+|---|---|---|
+| PactRegistryV6 | [`0xAC8eb93e608D78521D6Cf4d3d74b1d162e5964F0`](https://testnet.snowtrace.io/address/0xAC8eb93e608D78521D6Cf4d3d74b1d162e5964F0) | [Verified](https://testnet.snowtrace.io/address/0xAC8eb93e608D78521D6Cf4d3d74b1d162e5964F0/contract/43113/code) |
+| PactVaultV6 | [`0x3bAb5dE2D7Ed73848d2f377F43A39c757f199a43`](https://testnet.snowtrace.io/address/0x3bAb5dE2D7Ed73848d2f377F43A39c757f199a43) | [Verified](https://testnet.snowtrace.io/address/0x3bAb5dE2D7Ed73848d2f377F43A39c757f199a43/contract/43113/code) |
+| PactSettlementModuleV6 (Walking) | [`0xd3Caa4821C10443aa0CEaa34e87c9D0efF82D411`](https://testnet.snowtrace.io/address/0xd3Caa4821C10443aa0CEaa34e87c9D0efF82D411) | [Verified](https://testnet.snowtrace.io/address/0xd3Caa4821C10443aa0CEaa34e87c9D0efF82D411/contract/43113/code) |
+| PactSettlementModuleV6 (Working) | [`0x40F3b5bc99f55c8286438c2871C388d5eABBF332`](https://testnet.snowtrace.io/address/0x40F3b5bc99f55c8286438c2871C388d5eABBF332) | [Verified](https://testnet.snowtrace.io/address/0x40F3b5bc99f55c8286438c2871C388d5eABBF332/contract/43113/code) |
 
 The full manifest, with runtime code hashes, verifier and invite signer addresses and the
 deployment transaction, is in
