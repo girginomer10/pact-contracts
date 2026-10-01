@@ -35,7 +35,7 @@ const REQUIRED_FUNCTIONS = {
     'approveRolloverV6', 'rejectRolloverV6', 'releaseRolloverV6', 'activateWithRolloverV6',
     'rolloverOf', 'pactSettlementKind', 'pactSettlementTerms', 'settlementParticipantAt',
     'isActiveParticipant', 'invitePermitDigest', 'generationId'],
-  PactVaultV6: ['deposit', 'release', 'exit', 'payout', 'refundPayout', 'claim', 'claimFor',
+  PactVaultV6: ['deposit', 'release', 'exit', 'payout', 'refundPayout', 'claim', 'claimFor', 'claimTo',
     'lockRollover', 'moveRolloverReserve', 'releaseRolloverReserve', 'pool', 'unallocatedPool',
     'rolloverReserve', 'claimable', 'paidOut', 'contribution', 'rolloverPrincipal', 'principalOf',
     'rolloverState', 'stakeToken', 'registry', 'module', 'workingModule'],

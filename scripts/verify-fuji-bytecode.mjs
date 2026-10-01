@@ -23,13 +23,13 @@ const manifest = JSON.parse(readFileSync(new URL('../deployments/avalanche-fuji-
 // Creation transactions of the four V6 contracts (one deployer, consecutive nonces).
 const CONTRACTS = [
   { key: 'vault', name: 'PactVaultV6', file: 'contracts/src/PactVaultV6.sol', artifact: 'vault',
-    creationTx: '0x58b1879714894d230923a7158bbe457c9b11c6b4bd5fe7e09dbfafcda025939e' },
+    creationTx: '0x6df980f48e7a7cd3ec3897c88047b41597bda3d3093e32b9514833ccf8fdc5ba' },
   { key: 'registry', name: 'PactRegistryV6', file: 'contracts/src/PactRegistryV6.sol', artifact: 'registry',
-    creationTx: '0x0935cf33694a26554e4a3bbbf77d44d35a7d202a3cb99720c90f23935625d8c9' },
+    creationTx: '0xd5e986e291ce887db8d52fbcabb3d5bff3447f846d48a6b30897cabc1b96cfae' },
   { key: 'settlementModule', name: 'PactSettlementModuleV6', file: 'contracts/src/PactSettlementModuleV6.sol',
-    artifact: 'module', creationTx: '0x54573d5144e519f22b83e0aa34902bd323692151305dc84323d013c0439aa529' },
+    artifact: 'module', creationTx: '0xd6970096a81f533442d962b83b571cb904d07371729d759d4a3d87d0547838b0' },
   { key: 'workingSettlementModule', name: 'PactSettlementModuleV6', file: 'contracts/src/PactSettlementModuleV6.sol',
-    artifact: 'module', creationTx: '0x4aba434efa03eb34a407ae9536b3db6cced6357f4c6e79fbb172c12908411dc6' },
+    artifact: 'module', creationTx: '0x9d9d7928589886f502a3f084f138f0a148702f89db422abc52fa8b39de71014a' },
 ];
 
 async function rpc(method, params) {

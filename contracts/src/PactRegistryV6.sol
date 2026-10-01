@@ -439,15 +439,23 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     // Activation
     // ---------------------------------------------------------------------
 
-    /// @notice Creator-only activation with at least two active participants. Activation closes
-    /// recruitment. A fixed Pact keeps the `startsAt`/`endAt` accepted at creation; a rolling
-    /// Pact pins `startsAt = block.timestamp` and derives `endAt` and the windows.
+    /// @notice Activates with at least two active participants, any time before
+    /// `activationDeadline`. The creator may always call this. Once recruitment is effectively
+    /// closed — `block.timestamp >= joinDeadline` (no one else can join) or the roster is at
+    /// `capacity` (no one else can join either) — anyone may call it, so a server keeper can
+    /// start a Pact nobody has to babysit. Activation closes recruitment. A fixed Pact keeps the
+    /// `startsAt`/`endAt` accepted at creation; a rolling Pact pins `startsAt = block.timestamp`
+    /// and derives `endAt` and the windows.
     function activatePactV6(uint256 pactId) external nonReentrant {
         PactV6 storage pact = _getPact(pactId);
         if (pact.status != Status.Recruiting) revert InvalidStatus();
-        if (msg.sender != pact.creator) revert NotCreator();
         if (block.timestamp >= pact.activationDeadline) revert DeadlinePassed();
         if (participantList[pactId].length < 2) revert NotEnoughParticipants();
+        if (msg.sender != pact.creator) {
+            bool recruitmentClosed = block.timestamp >= pact.joinDeadline
+                || participantList[pactId].length == pact.capacity;
+            if (!recruitmentClosed) revert NotCreator();
+        }
 
         _activate(pactId, pact);
     }
@@ -587,6 +595,19 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     /// two rosters must be exactly equal, and each member must have approved this destination
     /// `termsHash`. A destination that is missing one approval, differs in membership, was
     /// already activated or is past the window can never consume the reserve.
+    ///
+    /// @dev Deliberately NOT made permissionless like `activatePactV6`. This call both starts
+    /// the destination Pact and irreversibly moves the source Pact's `rolloverReserve`
+    /// (`rolloverState` LOCKED -> MOVED can never be undone or repeated). Unlike plain
+    /// activation, which only affects its own single roster, this one entangles two Pacts and
+    /// two creators: the destination roster is not bounded by `capacity`, so an exact
+    /// source/destination roster match does not imply the destination's own recruitment is
+    /// "closed" the way `joinDeadline`/`capacity` implies it for `activatePactV6` — the
+    /// destination creator could still be intentionally leaving room for more joiners, or
+    /// simply not ready to accept an irreversible cross-Pact fund migration yet. Every member
+    /// consent and roster-equality check is already caller-independent, so this is not a
+    /// fund-safety gap, only a timing/control one; the destination creator keeps that control
+    /// until an independent review revisits this path.
     function activateWithRolloverV6(uint256 sourcePactId, uint256 destinationPactId)
         external nonReentrant
     {
@@ -617,10 +638,12 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     // Settlement and timeout refund
     // ---------------------------------------------------------------------
 
-    /// @notice Settles through the walking-domain module. Only an active participant may
-    /// submit, and only inside the half-open normal settlement window
+    /// @notice Settles through the walking-domain module. Anyone may submit — including a
+    /// server keeper — inside the half-open normal settlement window
     /// `[reviewClosesAt, settlementClosesAt)`. Before the window the verifier review is still
-    /// running; after it the permissionless refund is the only exit.
+    /// running; after it the permissionless refund is the only exit. The outcome and every
+    /// allocation are fully determined by the verifier-signed `authorization`/`allocations`,
+    /// never by `msg.sender`, so the submitter's identity cannot change who gets paid.
     function settleWalkingPactV6(
         IPactSettlementV6.SettlementAuthorization calldata authorization,
         IPactSettlementV6.Allocation[] calldata allocations,
@@ -853,7 +876,10 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         PactV6 storage pact = _getPact(pactId);
         if (pact.domain != uint8(domain)) revert WrongDomain();
         if (pact.status != Status.Active) revert InvalidStatus();
-        if (participantPosition[pactId][msg.sender] == 0) revert NotParticipant();
+        // Permissionless by design: the verifier signature over `authorization` (below) is the
+        // only source of truth for the outcome and every allocation. `msg.sender` never gates
+        // this or appears in that signed message, so anyone — a participant or a server
+        // keeper — may submit it without being able to influence who gets paid what.
         if (block.timestamp < pact.reviewClosesAt) revert DeadlineNotReached();
         if (block.timestamp >= pact.settlementClosesAt) revert DeadlinePassed();
         if (authorization.termsHash != pact.termsHash) revert InvalidSettlement();

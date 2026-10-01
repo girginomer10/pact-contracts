@@ -401,7 +401,7 @@ describe('Pact Registry V6 system', () => {
     assert.equal(moduleFunctions.has('refundTimedOutV6'), true);
     const vaultFunctions = new Set(compiled.vault.abi
       .filter((entry) => entry.type === 'function').map((entry) => entry.name));
-    for (const name of ['unallocatedPool', 'rolloverReserve', 'claimable', 'paidOut', 'claim',
+    for (const name of ['unallocatedPool', 'rolloverReserve', 'claimable', 'paidOut', 'claim', 'claimTo',
       'lockRollover', 'moveRolloverReserve', 'releaseRolloverReserve']) {
       assert.equal(vaultFunctions.has(name), true, `vault.${name}`);
     }
@@ -519,6 +519,45 @@ describe('Pact Registry V6 activation', () => {
     await f.activate(pactId, f.creator);
     assert.equal((await f.readPact(pactId)).status, 2);
     await expectError(f.activate(pactId, f.creator), 'InvalidStatus');
+  });
+
+  it('lets a keeper activate once the join deadline passes, but not before', async () => {
+    const f = await fixture({ capacity: 4 });
+    const created = await f.createPact({ joinWindow: HOUR, startsIn: 3n * HOUR });
+    await f.join(created.pactId, f.bob);
+    // Two participants, capacity 4, joinDeadline not reached: recruitment is still open, so a
+    // non-creator (a keeper with no special role) is still refused.
+    await expectError(f.activate(created.pactId, f.outsider), 'NotCreator');
+    await expectError(f.activate(created.pactId, f.bob), 'NotCreator');
+
+    await f.networkHelpers.time.increaseTo(created.joinDeadline);
+    // Recruitment is now closed (no one else can join); anyone may activate.
+    const receipt = await f.activate(created.pactId, f.outsider);
+    const activated = event(compiled.registry.abi, receipt, 'PactActivatedV6');
+    assert.equal(activated.caller.toLowerCase(), f.outsider.account.address.toLowerCase());
+    assert.equal((await f.readPact(created.pactId)).status, 2);
+  });
+
+  it('lets a keeper activate as soon as the roster reaches capacity, before the join deadline', async () => {
+    const f = await fixture({ capacity: 2 });
+    const created = await f.createPact({ joinWindow: 6n * HOUR, startsIn: 12n * HOUR });
+    await f.join(created.pactId, f.bob);
+    assert.equal(await f.registry.read.activeParticipantCount([created.pactId]), 2n);
+    // The join deadline is far away, but the roster is already at capacity: recruitment cannot
+    // admit anyone else, so a non-creator keeper may activate immediately.
+    const receipt = await f.activate(created.pactId, f.outsider);
+    assert.equal(event(compiled.registry.abi, receipt, 'PactActivatedV6').caller.toLowerCase(),
+      f.outsider.account.address.toLowerCase());
+    assert.equal((await f.readPact(created.pactId)).status, 2);
+  });
+
+  it('still blocks a keeper activation once the activation deadline is missed', async () => {
+    const f = await fixture({ capacity: 3 });
+    const created = await f.createPact({ joinWindow: HOUR, startsIn: 2n * HOUR });
+    await f.join(created.pactId, f.bob);
+    await f.networkHelpers.time.increaseTo(created.activationDeadline);
+    await expectError(f.activate(created.pactId, f.outsider), 'DeadlinePassed');
+    await expectError(f.activate(created.pactId, f.creator), 'DeadlinePassed');
   });
 
   it('keeps the fixed endAt when activated early and closes recruitment', async () => {
@@ -818,7 +857,9 @@ describe('Pact Registry V6 lifecycle, settlement and refund', () => {
     ];
     const ticket = await f.ticketFor(created.pactId, allocations);
     assert.equal(await f.settlement.read.settlementDigest([ticket.authorization]), ticket.digest);
-    await expectError(f.settle(ticket, allocations, f.outsider), 'NotParticipant');
+    // Before the review window even a non-participant hits the same time gate as everyone
+    // else: settlement is permissionless, not participant-gated.
+    await expectError(f.settle(ticket, allocations, f.outsider), 'DeadlineNotReached');
     await expectError(f.settle(ticket, allocations, f.creator), 'DeadlineNotReached');
     await expectError(f.settlement.write.refundTimedOutV6([created.pactId], { account: f.outsider.account }),
       'NotRegistry');
@@ -826,7 +867,9 @@ describe('Pact Registry V6 lifecycle, settlement and refund', () => {
       { account: f.outsider.account }), 'NotRegistry');
 
     await f.networkHelpers.time.increaseTo(created.reviewClosesAt);
-    const receipt = await f.settle(ticket, allocations, f.bob);
+    // A non-participant keeper submits the verifier-signed settlement; the allocation is
+    // determined entirely by the signature, never by who calls.
+    const receipt = await f.settle(ticket, allocations, f.outsider);
     assert.equal(await f.kind(created.pactId), 1);
     const settled = event(compiled.registry.abi, receipt, 'WalkingPactSettledV6');
     assert.equal(settled.pactId, created.pactId);
@@ -854,6 +897,29 @@ describe('Pact Registry V6 lifecycle, settlement and refund', () => {
     assert.equal(await f.usdc.read.balanceOf([f.bob.account.address]), before + 1_000_000n);
     assert.equal(await f.usdc.read.balanceOf([f.carol.account.address]), before + 500_000n);
     await expectError(f.claim(created.pactId, f.creator), 'NothingToClaim');
+  });
+
+  it('lets a non-participant keeper settle with a valid signature but rejects a tampered one', async () => {
+    const f = await fixture({ capacity: 3 });
+    const created = await f.createPact();
+    await f.join(created.pactId, f.bob);
+    await f.join(created.pactId, f.carol);
+    await f.activate(created.pactId, f.creator);
+    const allocations = [allocation(f.creator.account.address, STAKE),
+      allocation(f.bob.account.address, STAKE), allocation(f.carol.account.address, STAKE)];
+    await f.networkHelpers.time.increaseTo(created.reviewClosesAt);
+
+    const valid = await f.ticketFor(created.pactId, allocations);
+    // The verifier signature, not the caller, is what authorizes the outcome: a keeper who is
+    // not a participant (and never joined) cannot forge it, so a tampered signature still fails.
+    await expectError(f.settle({ ...valid, signature: `${valid.signature.slice(0, -2)}00` },
+      allocations, f.outsider), 'InvalidVerifierSignature');
+    // The untampered, validly-signed ticket succeeds from the same non-participant keeper.
+    const receipt = await f.settle(valid, allocations, f.outsider);
+    assert.equal(await f.kind(created.pactId), 1);
+    assert.equal(event(compiled.registry.abi, receipt, 'WalkingPactSettledV6').caller.toLowerCase(),
+      f.outsider.account.address.toLowerCase());
+    assert.equal(await f.vault.read.claimable([created.pactId, f.bob.account.address]), STAKE);
   });
 
   it('applies the half-open settlement and refund boundaries at -1 / exact / +1', async () => {
@@ -1028,6 +1094,49 @@ describe('Pact Registry V6 vault single accounting source', () => {
     const vaultReceipt = await f.claimVault(created.pactId, f.creator);
     assert.equal(event(compiled.vault.abi, vaultReceipt, 'ClaimedV6').amount, STAKE);
     assert.equal(await f.vault.read.paidOut([created.pactId]), STAKE * 3n);
+  });
+
+  it('lets a keeper pay out claimTo only to the credited recipient, never to itself', async () => {
+    const f = await fixture({ capacity: 3 });
+    const created = await f.createPact();
+    await f.join(created.pactId, f.bob);
+    await f.join(created.pactId, f.carol);
+    await f.activate(created.pactId, f.creator);
+    const allocations = [allocation(f.creator.account.address, STAKE),
+      allocation(f.bob.account.address, STAKE), allocation(f.carol.account.address, STAKE)];
+    await f.networkHelpers.time.increaseTo(created.reviewClosesAt);
+    await f.settle(await f.ticketFor(created.pactId, allocations), allocations, f.creator);
+
+    // A zero credit reverts exactly like `claim`, before any state changes.
+    await expectError(f.vault.write.claimTo(
+      [created.pactId, f.dave.account.address], { account: f.outsider.account }), 'NothingToClaim');
+
+    const bobBefore = await f.usdc.read.balanceOf([f.bob.account.address]);
+    const outsiderBefore = await f.usdc.read.balanceOf([f.outsider.account.address]);
+    // The keeper (`outsider`) submits the transaction, but only bob's credit moves and only to
+    // bob's address; the caller's own balance is untouched.
+    const receipt = await send(f.client, f.vault.write.claimTo(
+      [created.pactId, f.bob.account.address], { account: f.outsider.account }));
+    assert.equal(await f.usdc.read.balanceOf([f.bob.account.address]), bobBefore + STAKE);
+    assert.equal(await f.usdc.read.balanceOf([f.outsider.account.address]), outsiderBefore);
+    assert.equal(await f.vault.read.claimable([created.pactId, f.bob.account.address]), 0n);
+    const claimed = event(compiled.vault.abi, receipt, 'ClaimedV6');
+    assert.equal(claimed.recipient.toLowerCase(), f.bob.account.address.toLowerCase());
+    assert.equal(claimed.amount, STAKE);
+    const claimedFor = event(compiled.vault.abi, receipt, 'ClaimedForV6');
+    assert.equal(claimedFor.caller.toLowerCase(), f.outsider.account.address.toLowerCase());
+    assert.equal(claimedFor.recipient.toLowerCase(), f.bob.account.address.toLowerCase());
+    assert.equal(claimedFor.amount, STAKE);
+
+    // It cannot be called twice: the credit is already zeroed.
+    await expectError(f.vault.write.claimTo(
+      [created.pactId, f.bob.account.address], { account: f.outsider.account }), 'NothingToClaim');
+    await expectError(f.claim(created.pactId, f.bob), 'NothingToClaim');
+
+    // Self-service claim and claimTo consume the exact same credit; carol can still claim
+    // herself after a keeper pays out someone else's.
+    await f.claim(created.pactId, f.carol);
+    assert.equal(await f.vault.read.paidOut([created.pactId]), STAKE * 2n);
   });
 });
 
@@ -1425,6 +1534,11 @@ describe('Pact Registry V6 capacity, churn and custody security', () => {
     // A stranger can only ever pull its own balance.
     await expectError(f.vault.write.claim([created.pactId], { account: f.outsider.account }),
       'NothingToClaim');
+    // `claimTo` is deliberately permissionless (any keeper may submit it) but still only ever
+    // pays the named recipient's own credit; a stranger naming itself with no credit fails the
+    // same way `claim` does, never `OnlyModule`/`OnlyRegistry`.
+    await expectError(f.vault.write.claimTo([created.pactId, f.outsider.account.address],
+      { account: f.outsider.account }), 'NothingToClaim');
 
     const actors = await deploy(f.client, f.creator, localArtifacts.MockVaultActorsV6);
     const detached = await deploy(f.client, f.creator, compiled.vault,

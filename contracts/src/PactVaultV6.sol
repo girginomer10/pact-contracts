@@ -27,6 +27,9 @@ import {IPactSettlementSinkV6} from "./interfaces/IPactSettlementSinkV6.sol";
 /// - `deposit`/`release`/`exit`/rollover transitions are callable only by the immutable registry.
 /// - `payout`/`refundPayout`/`claimFor` are callable only by one of the two immutable modules,
 ///   and every credit is bounded by that Pact's `unallocatedPool`.
+/// - `claim`/`claimTo` are permissionless, but each only ever pays the address whose credit it
+///   consumes (`msg.sender` for `claim`, the `recipient` argument for `claimTo`) — never the
+///   caller of `claimTo` on someone else's behalf.
 /// There is deliberately no owner/admin path and no arbitrary-recipient transfer.
 ///
 /// UNAUDITED FUJI PROTOTYPE — not deployed, mainnet blocked, do not treat as production.
@@ -80,6 +83,9 @@ contract PactVaultV6 is IPactSettlementSinkV6 {
     event PayoutV6(uint256 indexed pactId, address indexed recipient, uint256 amount);
     event RefundPayoutV6(uint256 indexed pactId, address indexed recipient, uint256 amount);
     event ClaimedV6(uint256 indexed pactId, address indexed recipient, uint256 amount);
+    /// @dev Emitted in addition to `ClaimedV6` whenever `claimTo` pays a credit on someone
+    /// else's behalf, so an indexer can tell a self-service claim from a keeper-submitted one.
+    event ClaimedForV6(uint256 indexed pactId, address indexed caller, address indexed recipient, uint256 amount);
     event RolloverReservedV6(uint256 indexed pactId, uint256 amount, uint40 deadline, uint256 participantCount);
     event RolloverConsumedV6(uint256 indexed sourcePactId, uint256 indexed destinationPactId, uint256 amount);
     event RolloverReleasedV6(uint256 indexed pactId, uint256 amount, uint256 participantCount);
@@ -193,6 +199,18 @@ contract PactVaultV6 is IPactSettlementSinkV6 {
     /// @notice Vault-side claim entry for deployments whose adapter targets the vault directly.
     function claim(uint256 pactId) external nonReentrant returns (uint256 amount) {
         amount = _claim(pactId, msg.sender);
+    }
+
+    /// @notice Permissionless payout of `recipient`'s existing credit to `recipient` only, so a
+    /// server keeper (or anyone) can settle up a participant who never has to submit their own
+    /// claim transaction. This reuses `_claim` exactly like `claim`/`claimFor`: it zeroes and
+    /// pays `recipient`'s own credit and nobody else's, `msg.sender` never becomes the payee, and
+    /// there is no recipient-choosing path here beyond the one the caller names — which can only
+    /// ever be paid what that same address was already credited. A zero credit reverts
+    /// `NothingToClaim`, exactly like `claim`, so it cannot be used to grief a future real claim.
+    function claimTo(uint256 pactId, address recipient) external nonReentrant returns (uint256 amount) {
+        amount = _claim(pactId, recipient);
+        emit ClaimedForV6(pactId, msg.sender, recipient, amount);
     }
 
     /// @notice Moves the whole pool into `rolloverReserve` with deterministic equal entitlements
