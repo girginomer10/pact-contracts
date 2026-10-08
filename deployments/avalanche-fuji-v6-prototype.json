@@ -4,48 +4,54 @@
   "contractVersion": "6",
   "release": "unaudited-fuji-prototype",
   "registry": {
-    "address": "0x7F735A4f179153579e1B360fCe3DE93c0dc0dd6a",
-    "runtimeCodeHash": "0xec1b41e2f87e7705629d5fc9f273f6d4a48e3dd7fe31439630be54e5851700cb"
+    "address": "0x5128EC89CB377C535622Eb52Ab5295938FcC0caa",
+    "runtimeCodeHash": "0x9d22b76c40095af06cf280e0f57dbb48d7727a34f3ef6a6ba8439d8c22d9b832"
   },
   "vault": {
-    "address": "0xAB539A68E31Db72339DED0c1107F318C00EFF0ce",
-    "runtimeCodeHash": "0xc6a26080b14647d72e70e01fb4ce2b3423ce2aa3d6020e61d5a1c487ec7cc628"
+    "address": "0x6c879419659374d9BEF26CBFFF0Fb6f9Ee050a8f",
+    "runtimeCodeHash": "0xb58e32406981ef718b64257498522782bb07bf47361d8a4f4cb675fed234db38"
   },
   "stakeToken": {
     "address": "0x5425890298aed601595a70AB815c96711a31Bc65",
     "runtimeCodeHash": "0x7140a935aa3bb55d334d6d325fea277e47674770b10823feefa6f8b2c58af5fc"
   },
   "settlementModule": {
-    "address": "0xc96234Bc7f96D925dBB32994D57d085AD9841756",
-    "runtimeCodeHash": "0xbb7645b4676732ffe495c0e1d905374705cb93ecfde9539b59cabf27f07d685f",
-    "version": 1,
+    "address": "0xB527eEE58674f5264e7B3A82034d2F04F9C54BA3",
+    "runtimeCodeHash": "0x08537ce86d4a814233815876fe89525c3043ac4eedd8b91b2adce07d5d15c220",
+    "version": 3,
     "verifierAddress": "0xf16450aDfd85dCdAEEC39F0E61Dea16f9CD30C6C"
   },
   "workingSettlementModule": {
-    "address": "0xD1055395B1aFcd81a4afa68287668a09dADAd5F1",
-    "runtimeCodeHash": "0x360937b4f35414937597b9d9a03032f83a8f84f4940b10307a0da0bfde591614",
-    "version": 1,
+    "address": "0xCfE3ECFa42A5Cc8DC447D68C3E2Ac9232E0c7839",
+    "runtimeCodeHash": "0xc898c3e6029cb9e40037a998f06a851a6f77e4fbb93f935ac0677af7ece082a7",
+    "version": 3,
     "verifierAddress": "0xf7B0d8DF0551687880429d520e6b48033acA5f52"
   },
   "workingVerifierDomain": {
     "name": "PactSettlementModuleV6",
     "version": "1",
     "chainId": 43113,
-    "verifyingContract": "0xD1055395B1aFcd81a4afa68287668a09dADAd5F1"
+    "verifyingContract": "0xCfE3ECFa42A5Cc8DC447D68C3E2Ac9232E0c7839"
   },
   "inviteSignerAddress": "0xb03138d53fd0B8a67505b50D2533BF97C45831D6",
   "verifierDomain": {
     "name": "PactSettlementModuleV6",
     "version": "1",
     "chainId": 43113,
-    "verifyingContract": "0xc96234Bc7f96D925dBB32994D57d085AD9841756"
+    "verifyingContract": "0xB527eEE58674f5264e7B3A82034d2F04F9C54BA3"
   },
-  "deploymentBlockNumber": "58898597",
-  "deploymentBlockHash": "0x2fcb9f3a1dec0980ab2ae7811b400fc5a4fc4614680c85ca9796f7d7cfd99ee5",
-  "deploymentTransactionHash": "0xd5e986e291ce887db8d52fbcabb3d5bff3447f846d48a6b30897cabc1b96cfae",
-  "deploymentContractAddress": "0x7F735A4f179153579e1B360fCe3DE93c0dc0dd6a",
+  "commission": {
+    "commissionBps": 500,
+    "operatorShareOfCommissionBps": 1000,
+    "operatorAddress": "0x42242B1A459c00A83a8523CA46BFA9083aE67729",
+    "companyAddress": "0x7B578F2A27E3291081bD9584847e8486509069e8"
+  },
+  "deploymentBlockNumber": "59196737",
+  "deploymentBlockHash": "0x50c55757172f4a7d5e7aab722eb00d61085642f6566e429f9597768c44dcffed",
+  "deploymentTransactionHash": "0x7a5f3b948d6321bac4e2b4e79d8b679c13cfe3c893977f0cb37d0ab0ee9cbd6f",
+  "deploymentContractAddress": "0x5128EC89CB377C535622Eb52Ab5295938FcC0caa",
   "deployerAddress": "0xEbA22e684f2C3Bd2D43Ee70615Bef1804fB9372A",
-  "sourceSha256": "ebf8b34b23ebd643b1d6f4561c193d3a0176af7884f95ca1d68eacbecda9353c",
+  "sourceSha256": "fa9042bddfec395ea7e4020025b0995d856315ca6cf2fa33e56fbb83ec8d5d01",
   "compiler": "0.8.30+commit.73712a01.Emscripten.clang",
   "evmVersion": "cancun",
   "optimizerRuns": 1

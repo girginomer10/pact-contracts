@@ -37,3 +37,11 @@ interface IPactSettlementRegistryV6 {
     /// @dev Signature domain generation. The module pins it into every authorization.
     function generationId() external view returns (bytes32);
 }
+
+/// @notice Custody pointer of the registry, read by the module constructor so a module can
+/// only ever be deployed against the vault its registry actually uses. Kept separate from
+/// `IPactSettlementRegistryV6` because the registry exposes `vault` as a typed public
+/// immutable; the ABI of both is `vault() returns (address)`.
+interface IPactRegistryCustodyViewV6 {
+    function vault() external view returns (address);
+}

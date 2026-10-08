@@ -5,6 +5,8 @@ pragma solidity ^0.8.30;
 /// paying a claim. Reentry is opt-in so join and settlement flows stay usable,
 /// and the Vault is expected to reject the callback through its Reentrancy guard.
 contract ReentrantERC20 {
+    uint8 public constant decimals = 6;
+
     mapping(address account => uint256 balance) public balanceOf;
     mapping(address owner => mapping(address spender => uint256 amount)) public allowance;
 

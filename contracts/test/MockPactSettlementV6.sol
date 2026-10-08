@@ -20,6 +20,8 @@ contract MockPactSettlementRegistryV6 is IPactSettlementRegistryV6 {
     }
 
     bytes32 public generationId;
+    /// @dev Custody pointer the real registry exposes; the module constructor reads it.
+    address public vault;
     mapping(uint256 => Terms) internal termsByPact;
     mapping(uint256 => address[]) internal participantsByPact;
     mapping(uint256 => mapping(address => bool)) internal activeParticipant;
@@ -27,6 +29,10 @@ contract MockPactSettlementRegistryV6 is IPactSettlementRegistryV6 {
 
     function setGenerationId(bytes32 generationId_) external {
         generationId = generationId_;
+    }
+
+    function setVault(address vault_) external {
+        vault = vault_;
     }
 
     function setTerms(uint256 pactId, bytes32 termsHash, uint40 endAt, uint40 evidenceGrace,
@@ -84,6 +90,10 @@ contract MockPactSettlementRegistryV6 is IPactSettlementRegistryV6 {
     function callRefundTimedOutV6(address module, uint256 pactId) external {
         IPactSettlementModuleV6(module).refundTimedOutV6(pactId);
     }
+
+    function callBindPactV6(address module, uint256 pactId) external {
+        IPactSettlementModuleV6(module).bindPactV6(pactId);
+    }
 }
 
 /// @notice Local-EVM custody stand-in. It enforces the same `msg.sender == module` rule the
@@ -114,6 +124,18 @@ contract MockPactSettlementSinkV6 is IPactSettlementSinkV6 {
         payoutCallCount += 1;
         payoutTotal[pactId][recipient] += amount;
         credited[pactId][recipient] += amount;
+    }
+
+    /// @dev Books each allocation exactly like `payout` (this stand-in charges no commission), so
+    /// per-allocation counts and credits hold whichever finalize path the module takes.
+    function payoutAfterCommission(uint256 pactId, IPactSettlementV6.Allocation[] calldata allocations)
+        public virtual returns (uint256)
+    {
+        if (msg.sender != module) revert NotModule();
+        for (uint256 i; i < allocations.length; ++i) {
+            payout(pactId, allocations[i].recipient, allocations[i].amount);
+        }
+        return 0;
     }
 
     function refundPayout(uint256 pactId, address recipient, uint256 amount) public virtual {

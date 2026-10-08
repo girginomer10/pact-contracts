@@ -16,6 +16,12 @@ contract MockERC20 {
 
     function setRecipientBlocked(address recipient, bool blocked) external { blockedRecipient[recipient] = blocked; }
 
+    /// @dev Non-empty: every transfer reverts with this reason, like a USDC blocklist
+    /// ("Blacklistable: account is blacklisted") or pause ("Pausable: paused").
+    string public revertReason;
+
+    function setRevertReason(string calldata reason) external { revertReason = reason; }
+
     bool public mutateTransfers = true;
     bool public transfersSucceed = true;
 
@@ -37,6 +43,7 @@ contract MockERC20 {
     }
 
     function transfer(address to, uint256 amount) external returns (bool) {
+        if (bytes(revertReason).length != 0) revert(revertReason);
         if (!mutateTransfers) return transfersSucceed && !blockedRecipient[to];
         if (balanceOf[msg.sender] < amount) return false;
 
@@ -46,6 +53,7 @@ contract MockERC20 {
     }
 
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        if (bytes(revertReason).length != 0) revert(revertReason);
         if (!mutateTransfers) return transfersSucceed && !blockedRecipient[to];
         uint256 approved = allowance[from][msg.sender];
         if (approved < amount || balanceOf[from] < amount) return false;

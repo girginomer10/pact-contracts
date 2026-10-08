@@ -5,6 +5,7 @@ import {IPactSettlementV6} from "./interfaces/IPactSettlementV6.sol";
 import {IPactSettlementRegistryV6} from "./interfaces/IPactSettlementRegistryV6.sol";
 import {IPactSettlementModuleV6} from "./interfaces/IPactSettlementModuleV6.sol";
 import {IPactVaultV6} from "./interfaces/IPactVaultV6.sol";
+import {IPactERC20V6} from "./interfaces/IPactERC20V6.sol";
 import {PactTimeoutV6} from "./libraries/PactTimeoutV6.sol";
 
 /// @title PactRegistryV6
@@ -18,7 +19,7 @@ import {PactTimeoutV6} from "./libraries/PactTimeoutV6.sol";
 /// - `refundTimedOutV6` on the module is `onlyRegistry`. The permissionless liveness entry
 ///   point is `refundWalkingPactV6`/`refundWorkingPactV6` here.
 /// - Timing is immutable: `evidenceClosesAt = endAt + evidenceGrace`,
-///   `reviewClosesAt = evidenceClosesAt + 24h`, `settlementClosesAt = reviewClosesAt + 24h`.
+///   `reviewClosesAt = evidenceClosesAt + 24h`, `settlementClosesAt = reviewClosesAt + 72h`.
 ///   Walking fixes `evidenceGrace = 24h`; working accepts 0..24h. Fixed Pacts lock `startsAt`
 ///   and `endAt` at creation. Rolling walking Pacts fix `startsAt` (and derive `endAt`) at
 ///   activation. All windows are half-open.
@@ -26,10 +27,15 @@ import {PactTimeoutV6} from "./libraries/PactTimeoutV6.sol";
 ///   joiner needs an EIP-712 `InvitePermit` signed by the per-Pact invite signer. The creator
 ///   can rotate the signer (invalidating every outstanding permit through the epoch) and
 ///   block/unblock recipients on-chain while recruiting.
-/// - Activation closes recruitment. When the activation deadline is missed anyone may trigger
-///   `cancel*` for a full refund; the creator's return is never awaited.
+/// - Activation closes recruitment. Until then every member except the creator may leave with
+///   the full stake. When the activation deadline is missed anyone may trigger `cancel*` for a
+///   full refund; the creator's return is never awaited. A Pact whose pinned verifier is
+///   revoked can never be activated.
+/// - A free exit before `startsAt` that leaves fewer than two members cancels the Pact with a
+///   full refund for the rest, so the creator is never stranded in a one-member Pact.
 ///
-/// UNAUDITED FUJI PROTOTYPE — not deployed, mainnet blocked, do not treat as production.
+/// UNAUDITED PROTOTYPE. The bytecode accepts Avalanche Fuji and Avalanche C-Chain; a mainnet
+/// deployment is a separate, explicitly acknowledged owner decision and remains unaudited.
 contract PactRegistryV6 is IPactSettlementRegistryV6 {
     enum Status {
         None,
@@ -162,6 +168,7 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     error InvitePermitUsed();
     error InviteParticipantBlocked();
     error RolloverUnavailable();
+    error SettlementUnavailable();
     error Reentrancy();
 
     event PactCreatedV6(
@@ -241,14 +248,17 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     constructor(address stakeToken_, address vault_, address walkingModule_, address workingModule_,
         address inviteSigner_
     ) {
-        // Mirrors the V5 deployment guard: the prototype refuses to exist on any network
-        // other than Avalanche Fuji or a local test chain.
-        if (block.chainid != 43113 && block.chainid != 31337) revert InvalidConfiguration();
+        // Deployment guard: Avalanche Fuji (43113), Avalanche C-Chain (43114) or a local test
+        // chain (31337). Mainnet is accepted by the bytecode only; the deploy tooling still
+        // requires an explicit, separately acknowledged mainnet decision.
+        if (block.chainid != 43113 && block.chainid != 43114 && block.chainid != 31337) revert InvalidConfiguration();
         if (stakeToken_ == address(0) || stakeToken_.code.length == 0
             || vault_ == address(0) || vault_.code.length == 0
             || walkingModule_ == address(0) || inviteSigner_ == address(0)) {
             revert InvalidConfiguration();
         }
+        // MIN_STAKE/MAX_STAKE are 6-decimal USDC amounts.
+        if (IPactERC20V6(stakeToken_).decimals() != 6) revert InvalidConfiguration();
         // The vault is already deployed and must point back at this registry's final address
         // (passed as a CREATE-predicted address by the deployment script) and at both modules.
         IPactVaultV6 candidate = IPactVaultV6(vault_);
@@ -427,6 +437,12 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         inviteSigner[pactId] = defaultInviteSigner;
         inviteEpoch[pactId] = 1;
 
+        // Binding pins the module's current verifier to this Pact and proves the module is
+        // live and wired to this registry before the first stake moves: a module with no code,
+        // one configured for another registry, a paused module or a revoked verifier reverts
+        // here, so no deposit is ever accepted into a Pact that could not settle normally.
+        _moduleFor(domain).bindPactV6(pactId);
+
         _addParticipant(pactId, msg.sender);
         vault.deposit(pactId, msg.sender, stakeAmount);
 
@@ -464,6 +480,9 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     /// `startsAt = block.timestamp` and derives `endAt` and the windows; a fixed Pact keeps the
     /// schedule accepted at creation.
     function _activate(uint256 pactId, PactV6 storage pact) private {
+        // A Pact pinned to a revoked verifier could only end in the timeout refund; refusing
+        // activation keeps its members on the full-refund leave/cancel path instead.
+        if (!_moduleFor(Domain(pact.domain)).settleable(pactId)) revert SettlementUnavailable();
         if (pact.startMode == 1) {
             uint40 startsAt = uint40(block.timestamp);
             uint256 endAtValue = uint256(startsAt) + uint256(pact.duration);
@@ -495,8 +514,9 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         _join(permit, signature, Domain.Working);
     }
 
-    /// @notice Leaves during recruiting only (up to `joinDeadline`) and receives the full
-    /// stake back. The roster is kept contiguous with swap-pop. The creator cannot leave.
+    /// @notice Leaves while the Pact is still recruiting (until it is activated or cancelled,
+    /// including after `joinDeadline`) and receives the full stake back. The roster is kept
+    /// contiguous with swap-pop. The creator cannot leave.
     function leaveWalkingPactV6(uint256 pactId) external nonReentrant {
         _leave(pactId, Domain.Walking);
     }
@@ -506,9 +526,11 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
     }
 
     /// @notice Exits an active walking Pact strictly before `endAt` with the immutable exit
-    /// penalty. The refund becomes an independent vault claim; the penalty stays in the pool
-    /// for the final settlement. The creator can never exit, so the active roster cannot
-    /// collapse to zero.
+    /// penalty; before `startsAt` the exit is penalty-free, because activation can precede the
+    /// start and nobody has begun yet, and a pre-start exit that leaves fewer than two members
+    /// cancels the Pact with a full refund for the rest. The refund becomes an independent vault
+    /// claim; the penalty stays in the pool for the final settlement. The creator can never
+    /// exit, so the active roster cannot collapse to zero.
     function exitWalkingPactV6(uint256 pactId) external nonReentrant {
         _exit(pactId, Domain.Walking);
     }
@@ -660,10 +682,12 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         _settle(authorization, allocations, verifierSignature, Domain.Working);
     }
 
-    /// @notice Permissionless liveness escape. Anyone may call once
-    /// `block.timestamp >= settlementClosesAt`; the module splits the pool deterministically
-    /// across the active roster and this registry marks the Pact `Refunded` in the same
-    /// transaction (effects first, so a module revert rolls the status write back).
+    /// @notice Permissionless liveness escape. Anyone may call once the module's refund rule
+    /// holds (`block.timestamp >= settlementClosesAt`, or `>= reviewClosesAt` when the Pact's
+    /// pinned verifier is revoked); the module splits the pool deterministically across the
+    /// active roster and this registry marks the Pact `Refunded` in the same transaction
+    /// (effects first, so a module revert — including its `TimeoutNotReached` — rolls the
+    /// status write back).
     function refundWalkingPactV6(uint256 pactId) external nonReentrant {
         _refund(pactId, Domain.Walking);
     }
@@ -789,7 +813,6 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         PactV6 storage pact = _getPact(pactId);
         if (pact.domain != uint8(domain)) revert WrongDomain();
         if (pact.status != Status.Recruiting) revert InvalidStatus();
-        if (block.timestamp > pact.joinDeadline) revert DeadlinePassed();
         if (msg.sender == pact.creator || participantPosition[pactId][msg.sender] == 0) {
             revert NotParticipant();
         }
@@ -800,9 +823,12 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         emit ParticipantLeftV6(pactId, msg.sender, principal);
     }
 
-    /// @dev Post-start exit. `refund = principal - floor(principal * exitPenaltyBps / 10_000)`
-    /// becomes a vault claim; the penalty stays in the Pact pool. Strictly before `endAt` and
-    /// never allowed for the creator, so the active roster can never drop to zero.
+    /// @dev Active-phase exit. `refund = principal - floor(principal * exitPenaltyBps / 10_000)`
+    /// becomes a vault claim; the penalty stays in the Pact pool. Before `startsAt` the penalty
+    /// is zero, and if fewer than two members remain the Pact is cancelled (full release; no
+    /// penalty was ever charged before the start, so the pool is exactly their principal).
+    /// Strictly before `endAt` and never allowed for the creator, so the active roster can never
+    /// drop to zero.
     function _exit(uint256 pactId, Domain domain) private {
         PactV6 storage pact = _getPact(pactId);
         if (pact.domain != uint8(domain)) revert WrongDomain();
@@ -813,12 +839,16 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         }
 
         uint256 principal = vault.principalOf(pactId, msg.sender);
-        uint256 penalty = principal * pact.exitPenaltyBps / 10_000;
+        // The penalty prices abandoning a running Pact. Before `startsAt` (a fixed Pact
+        // activated early) nothing has started, so the exit is a free leave.
+        bool beforeStart = block.timestamp < pact.startsAt;
+        uint256 penalty = beforeStart ? 0 : principal * pact.exitPenaltyBps / 10_000;
         uint256 refund = principal - penalty;
 
         _removeParticipant(pactId, msg.sender);
         vault.exit(pactId, msg.sender, refund);
         emit ParticipantExitedV6(pactId, msg.sender, principal, penalty, refund);
+        if (beforeStart && participantList[pactId].length < MIN_CAPACITY) _releaseAll(pactId, pact, domain);
     }
 
     function _setRecipientBlocked(uint256 pactId, address recipient, bool blocked) private {
@@ -840,7 +870,12 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         // passed without activation, anyone may trigger the full-refund recovery; a creator
         // who disappeared can never trap the stakes.
         if (block.timestamp < pact.activationDeadline && msg.sender != pact.creator) revert NotCreator();
+        _releaseAll(pactId, pact, domain);
+    }
 
+    /// @dev Cancels with a full refund for every remaining member: recruiting cancellation and
+    /// the pre-start collapse of an activated Pact.
+    function _releaseAll(uint256 pactId, PactV6 storage pact, Domain domain) private {
         address[] storage list = participantList[pactId];
         uint256 participantCount = list.length;
         uint256 refundedTotal;
@@ -915,11 +950,11 @@ contract PactRegistryV6 is IPactSettlementRegistryV6 {
         PactV6 storage pact = _getPact(pactId);
         if (pact.domain != uint8(domain)) revert WrongDomain();
         if (pact.status != Status.Active) revert InvalidStatus();
-        if (block.timestamp < pact.settlementClosesAt) revert DeadlineNotReached();
 
-        // Effects first, then the module call. No accessible order can mark the module
-        // refunded while this registry is still `Open`. The distributable is read before the
-        // module moves it into vault credits.
+        // Effects first, then the module call, which owns the timing rule (the module is
+        // immutable and was proven wired to this registry at binding). No accessible order can
+        // mark the module refunded while this registry is still `Open`. The distributable is
+        // read before the module moves it into vault credits.
         pact.status = Status.Refunded;
         uint256 participantCount = participantList[pactId].length;
         uint256 distributable = vault.pool(pactId);

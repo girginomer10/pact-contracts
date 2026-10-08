@@ -1,0 +1,52 @@
+{
+  "schema": "pact-working-fuji-deployment-v6",
+  "chainId": 43113,
+  "contractVersion": "6",
+  "release": "unaudited-fuji-prototype",
+  "registry": {
+    "address": "0xe89755B9ca6f5a5DE660cb45c2A45fd1b963dB3F",
+    "runtimeCodeHash": "0xff127aff724e0949f325ce6dd1c7a99e608c4c0e6139a074faa6bbdb6811751d"
+  },
+  "vault": {
+    "address": "0x2a1229784864AF415a8a2c0109aF017924C3e43E",
+    "runtimeCodeHash": "0xf66dab7edd0c58b025315f5d4f70257848d51dd05aac8c9579a2b207e458db1d"
+  },
+  "stakeToken": {
+    "address": "0x5425890298aed601595a70AB815c96711a31Bc65",
+    "runtimeCodeHash": "0x7140a935aa3bb55d334d6d325fea277e47674770b10823feefa6f8b2c58af5fc"
+  },
+  "settlementModule": {
+    "address": "0xFD110713e113526c92fD102b7aa8E872fA7b51c7",
+    "runtimeCodeHash": "0x7895b71381945f45bd7394a49b528453929747e2b6f7292a7f5af59f94c908f5",
+    "version": 1,
+    "verifierAddress": "0xf16450aDfd85dCdAEEC39F0E61Dea16f9CD30C6C"
+  },
+  "workingSettlementModule": {
+    "address": "0x59B09d83DE33bDDf00817703bd6B44924580DB3d",
+    "runtimeCodeHash": "0x7895b71381945f45bd7394a49b528453929747e2b6f7292a7f5af59f94c908f5",
+    "version": 1,
+    "verifierAddress": "0xf7B0d8DF0551687880429d520e6b48033acA5f52"
+  },
+  "workingVerifierDomain": {
+    "name": "PactSettlementModuleV6",
+    "version": "1",
+    "chainId": 43113,
+    "verifyingContract": "0x59B09d83DE33bDDf00817703bd6B44924580DB3d"
+  },
+  "inviteSignerAddress": "0xb03138d53fd0B8a67505b50D2533BF97C45831D6",
+  "verifierDomain": {
+    "name": "PactSettlementModuleV6",
+    "version": "1",
+    "chainId": 43113,
+    "verifyingContract": "0xFD110713e113526c92fD102b7aa8E872fA7b51c7"
+  },
+  "deploymentBlockNumber": "59136740",
+  "deploymentBlockHash": "0xbce30f10c043434ed7ccccb680580d9d7cfa2afa629d9513d0734230c3d09ab7",
+  "deploymentTransactionHash": "0x6f83b87380dd9407a5d9b2ee34298084b40fa087e39b90118f18783aac56cff3",
+  "deploymentContractAddress": "0xe89755B9ca6f5a5DE660cb45c2A45fd1b963dB3F",
+  "deployerAddress": "0xEbA22e684f2C3Bd2D43Ee70615Bef1804fB9372A",
+  "sourceSha256": "36964310842560cefbc895f1fd8b045a9811325930158d86e237f380b704a98c",
+  "compiler": "0.8.30+commit.73712a01.Emscripten.clang",
+  "evmVersion": "cancun",
+  "optimizerRuns": 1
+}

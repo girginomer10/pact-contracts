@@ -3,6 +3,8 @@ pragma solidity ^0.8.30;
 
 /// @dev USDT-style test double whose transfer functions return no data.
 contract NoReturnERC20 {
+    uint8 public constant decimals = 6;
+
     mapping(address account => uint256 balance) public balanceOf;
     mapping(address owner => mapping(address spender => uint256 amount)) public allowance;
 

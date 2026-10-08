@@ -4,6 +4,8 @@ pragma solidity ^0.8.30;
 /// @dev Adversarial test token that reports success while burning part of each
 /// transfer. PactEscrow must reject it through exact balance-delta checks.
 contract FeeOnTransferERC20 {
+    uint8 public constant decimals = 6;
+
     uint256 private constant BPS_DENOMINATOR = 10_000;
 
     mapping(address account => uint256 balance) public balanceOf;

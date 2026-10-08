@@ -12,6 +12,7 @@ import {
   keccak256,
   parseEventLogs,
   toFunctionSelector,
+  zeroAddress,
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { compilePactSettlementV6Artifact, assertPactSettlementV6Deployable } from '../scripts/pact-settlement-v6-artifact.mjs';
@@ -23,7 +24,8 @@ const artifact = compiled.module;
 const HOUR = 3_600n;
 const DAY = 86_400n;
 const REVIEW_WINDOW = DAY;
-const SETTLEMENT_WINDOW = DAY;
+const SETTLEMENT_WINDOW = 3n * DAY;
+const CHALLENGE_WINDOW = HOUR;
 const TERMS = `0x${'11'.repeat(32)}`;
 const RESULTS = `0x${'22'.repeat(32)}`;
 const EVIDENCE = `0x${'33'.repeat(32)}`;
@@ -48,7 +50,8 @@ const DOMAIN_TYPES = { EIP712Domain: [
   { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
   { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }] };
 
-const MOCK_SOURCE_NAMES = ['contracts/test/MockPactSettlementV6.sol', 'contracts/src/interfaces/IPactSettlementV6.sol',
+const MOCK_SOURCE_NAMES = ['contracts/test/MockPactSettlementV6.sol', 'contracts/test/MockERC1271VerifierV6.sol',
+  'contracts/src/interfaces/IPactSettlementV6.sol',
   'contracts/src/interfaces/IPactSettlementRegistryV6.sol', 'contracts/src/interfaces/IPactSettlementModuleV6.sol',
   'contracts/src/interfaces/IPactSettlementSinkV6.sol', 'contracts/src/libraries/PactTimeoutV6.sol'];
 const mockSources = Object.fromEntries(MOCK_SOURCE_NAMES.map((name) => [name,
@@ -143,17 +146,23 @@ function event(receipt, name) {
   return parsed.args;
 }
 
-async function fixture({ reentrantSink = false } = {}) {
+async function fixture({ reentrantSink = false, contractVerifierOwner } = {}) {
   const connection = await hre.network.create();
   const client = await connection.viem.getPublicClient();
-  const [deployer, alice, bob, carol, outsider] = await connection.viem.getWalletClients();
+  const [deployer, alice, bob, carol, outsider, guardian] = await connection.viem.getWalletClients();
   const verifier = privateKeyToAccount(generatePrivateKey());
   const registry = await deploy(client, deployer, mockArtifacts.MockPactSettlementRegistryV6);
   const sink = await deploy(client, deployer, reentrantSink
     ? mockArtifacts.MockReentrantPactSettlementSinkV6
     : mockArtifacts.MockPactSettlementSinkV6);
+  // The module constructor proves the registry points at its sink; the mock exposes `vault()`.
+  await send(client, registry.write.setVault([sink.address]));
+  const contractVerifier = contractVerifierOwner
+    ? await deploy(client, deployer, mockArtifacts.MockERC1271VerifierV6, [contractVerifierOwner.address]) : null;
+  const verifierAddress = contractVerifier?.address;
   const receipt = await send(client, deployer.deployContract({ abi: artifact.abi, bytecode: artifact.bytecode,
-    args: [registry.address, verifier.address, sink.address] }));
+    args: [registry.address, verifierAddress ?? verifier.address, sink.address, guardian.account.address,
+      Number(CHALLENGE_WINDOW)] }));
   const settlement = getContract({ address: receipt.contractAddress, abi: artifact.abi,
     client: { public: client, wallet: deployer } });
   await send(client, sink.write.setModule([settlement.address]));
@@ -161,8 +170,16 @@ async function fixture({ reentrantSink = false } = {}) {
   const chainId = await client.getChainId();
   const now = async () => BigInt(await connection.networkHelpers.time.latest());
 
+  /** Registry-only binding, done once per Pact exactly like the real registry does at creation. */
+  async function bind(pactId) {
+    if ((await settlement.read.pactVerifier([pactId])) === zeroAddress) {
+      await send(client, registry.write.callBindPactV6([settlement.address, pactId]));
+    }
+  }
+
   async function configure(pactId, { participants, distributable, endAt, evidenceGrace = DAY,
-    termsHash = TERMS, settlementKind = 1 } = {}) {
+    termsHash = TERMS, settlementKind = 1, bound = true } = {}) {
+    if (bound) await bind(pactId);
     await send(client, registry.write.setParticipants([pactId, participants]));
     await send(client, registry.write.setTerms([pactId, termsHash, endAt, evidenceGrace, distributable]));
     await send(client, registry.write.setSettlementKind([pactId, settlementKind]));
@@ -180,9 +197,20 @@ async function fixture({ reentrantSink = false } = {}) {
       digest: hashTypedData(typed) };
   }
 
-  async function settle(ticket, allocations, wallet = deployer) {
-    return send(client, registry.write.callSettleV6([settlement.address, ticket.authorization, allocations,
-      ticket.signature], { account: wallet.account }));
+  // Outcome 0/2 splits wait out the challenge window; by default the helper finalizes them so
+  // credit-level tests keep working. `finalize: false` leaves them pending.
+  async function settle(ticket, allocations, wallet = deployer, { finalize = true } = {}) {
+    const receipt = await send(client, registry.write.callSettleV6([settlement.address, ticket.authorization,
+      allocations, ticket.signature], { account: wallet.account }));
+    if (finalize) await finalizePending(ticket.authorization.pactId, allocations);
+    return receipt;
+  }
+
+  async function finalizePending(pactId, allocations, wallet = outsider) {
+    const [, opensAt, state] = await settlement.read.pendingPayout([pactId]);
+    if (Number(state) !== 1) return null;
+    if (await now() < BigInt(opensAt)) await connection.networkHelpers.time.increaseTo(BigInt(opensAt));
+    return send(client, settlement.write.finalizeSettlementV6([pactId, allocations], { account: wallet.account }));
   }
 
   async function refund(pactId = 1n, wallet = outsider) {
@@ -190,8 +218,8 @@ async function fixture({ reentrantSink = false } = {}) {
       { account: wallet.account }));
   }
 
-  return { ...connection, client, deployer, alice, bob, carol, outsider, verifier, registry, sink,
-    settlement, chainId, now, configure, signed, settle, refund };
+  return { ...connection, client, deployer, alice, bob, carol, outsider, guardian, verifier, registry, sink,
+    settlement, chainId, now, configure, bind, signed, settle, finalizePending, refund, contractVerifier };
 }
 
 describe('Pact Settlement V6 primitives', () => {
@@ -209,7 +237,7 @@ describe('Pact Settlement V6 primitives', () => {
       for(const expected of allocations) assert.equal(await f.sink.read.credited([pactId,expected.recipient]),expected.amount,vector.name);
     }
     const dust=vectors[2];
-    await f.configure(4n,{participants:dust.rights.map(r=>r.recipient),distributable:5n,endAt:(await f.now())-4n*DAY,settlementKind:2});
+    await f.configure(4n,{participants:dust.rights.map(r=>r.recipient),distributable:5n,endAt:(await f.now())-6n*DAY,settlementKind:2});
     await f.refund(4n);
     for(const expected of dust.expected) assert.equal(await f.sink.read.credited([4n,expected.recipient]),BigInt(expected.amount));
   });
@@ -260,7 +288,7 @@ describe('Pact Settlement V6 primitives', () => {
     assert.deepEqual((await f.settlement.read.settlementWindowClosesAt([1_000n, 3_600n])).map(BigInt),
       [evidence, review, settlement]);
     assert.equal(review - evidence, DAY);
-    assert.equal(settlement - review, DAY);
+    assert.equal(settlement - review, SETTLEMENT_WINDOW);
     await expectError(f.settlement.read.settlementWindowClosesAt([(2n ** 40n) - 1n, 1n]), 'InvalidTimeout');
   });
 
@@ -332,8 +360,9 @@ describe('Pact Settlement V6 authorization, claims and timeout refund', () => {
     await expectError(f.settle(await f.signed(openAllocations, { pactId: 2n }), openAllocations),
       'UnexpectedSettlementKind');
 
-    await f.settle(ticket, allocations);
-    await expectError(f.settle(ticket, allocations), 'NonceAlreadyConsumed');
+    await f.settle(ticket, allocations, f.deployer, { finalize: false });
+    await expectError(f.settle(ticket, allocations, f.deployer, { finalize: false }), 'NonceAlreadyConsumed');
+    await f.finalizePending(1n, allocations);
     assert.equal(await f.sink.read.credited([1n, f.alice.account.address]), 6_000_000n);
   });
 
@@ -656,5 +685,156 @@ describe('Pact Settlement V6 randomized invariants and gas envelope', () => {
     assert.ok(settleGas < 1_500_000n, `settleV6 gas at 20 participants: ${settleGas}`);
     assert.ok(refundGas < 1_600_000n, `refundTimedOutV6 gas at 20 participants: ${refundGas}`);
     assert.ok(claimGas < 150_000n, `claim gas: ${claimGas}`);
+  });
+});
+
+describe('Pact Settlement V6 outcome range, binding and guardian levers', () => {
+  it('refuses any outcome above 3 and accepts every evaluator code', async () => {
+    const f = await fixture();
+    const endAt = (await f.now()) + DAY;
+    const members = [f.alice.account.address, f.bob.account.address];
+    const allocations = [allocation(members[0], 6_000_000n), allocation(members[1], 4_000_000n)];
+    for (const [pactId, outcome] of [[11n, 4], [12n, 255]]) {
+      await f.configure(pactId, { participants: members, distributable: 10_000_000n, endAt });
+      await expectError(f.settle(await f.signed(allocations, { pactId, outcome }), allocations), 'InvalidOutcome');
+    }
+    // Outcomes 1 (refund) and 2 (fallback) must be equal splits in ascending address order;
+    // an unequal split under those codes is refused, outcome 0 stays free-form.
+    const sorted = [...members].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+    const equal = [allocation(sorted[0], 5_000_000n), allocation(sorted[1], 5_000_000n)];
+    for (const [pactId, outcome] of [[15n, 1], [16n, 2]]) {
+      await f.configure(pactId, { participants: members, distributable: 10_000_000n, endAt });
+      await expectError(f.settle(await f.signed(allocations, { pactId, outcome }), allocations), 'OutcomeAllocationMismatch');
+      const reversed = [...equal].reverse();
+      await expectError(f.settle(await f.signed(reversed, { pactId, outcome }), reversed), 'OutcomeAllocationMismatch');
+    }
+    await f.configure(17n, { participants: members, distributable: 10_000_000n, endAt });
+    const partial = [allocation(sorted[0], 10_000_000n)];
+    await expectError(f.settle(await f.signed(partial, { pactId: 17n, outcome: 1 }), partial), 'OutcomeAllocationMismatch');
+    // A one-recipient fallback (sole closest member) is an equal split of one.
+    const sole = await f.settle(await f.signed(partial, { pactId: 17n, outcome: 2 }), partial);
+    assert.equal(event(sole, 'SettledV6').outcome, 2);
+    for (const [pactId, outcome] of [[13n, 1], [14n, 2]]) {
+      await f.configure(pactId, { participants: members, distributable: 10_000_000n, endAt });
+      const receipt = await f.settle(await f.signed(equal, { pactId, outcome }), equal);
+      assert.equal(event(receipt, 'SettledV6').outcome, outcome);
+    }
+    assert.equal(await f.settlement.read.MAX_OUTCOME(), 3);
+  });
+
+  it('binds once per Pact, only from the registry, and refuses settlement of an unbound Pact', async () => {
+    const f = await fixture();
+    const endAt = (await f.now()) + DAY;
+    const members = [f.alice.account.address, f.bob.account.address];
+    const allocations = [allocation(members[0], 10_000_000n)];
+    await f.configure(1n, { participants: members, distributable: 10_000_000n, endAt, bound: false });
+    assert.equal(await f.settlement.read.pactVerifier([1n]), zeroAddress);
+    await expectError(f.settle(await f.signed(allocations), allocations), 'PactNotBound');
+    await expectError(f.settlement.write.bindPactV6([1n], { account: f.outsider.account }), 'NotRegistry');
+    await expectError(f.settlement.write.bindPactV6([1n], { account: f.guardian.account }), 'NotRegistry');
+    const bound = await send(f.client, f.registry.write.callBindPactV6([f.settlement.address, 1n]));
+    assert.equal(event(bound, 'PactBoundV6').verifier, f.verifier.address);
+    assert.equal(await f.settlement.read.pactVerifier([1n]), f.verifier.address);
+    await expectError(f.registry.write.callBindPactV6([f.settlement.address, 1n]), 'PactAlreadyBound');
+    await f.settle(await f.signed(allocations), allocations);
+  });
+
+  it('pauses binding and settlement but never the timeout refund or claims', async () => {
+    const f = await fixture();
+    const endAt = (await f.now()) + DAY;
+    const members = [f.alice.account.address, f.bob.account.address];
+    const allocations = [allocation(members[0], 6_000_000n), allocation(members[1], 4_000_000n)];
+    await f.configure(1n, { participants: members, distributable: 10_000_000n, endAt });
+    await f.configure(2n, { participants: members, distributable: 10_000_000n, endAt, settlementKind: 2 });
+    await expectError(f.settlement.write.pauseSettlement([true], { account: f.outsider.account }), 'NotGuardian');
+    const paused = await send(f.client, f.settlement.write.pauseSettlement([true], { account: f.guardian.account }));
+    assert.equal(event(paused, 'SettlementPausedV6').paused, true);
+    assert.equal(await f.settlement.read.settlementPaused(), true);
+
+    await expectError(f.settle(await f.signed(allocations), allocations), 'SettlementPaused');
+    await expectError(f.registry.write.callBindPactV6([f.settlement.address, 3n]), 'SettlementPaused');
+    // The escape hatch keeps working while paused: deterministic refund, then claims.
+    await f.networkHelpers.time.increase(DAY + REVIEW_WINDOW + SETTLEMENT_WINDOW + 2n * DAY);
+    const refunded = await f.refund(2n);
+    assert.equal(event(refunded, 'RefundTimedOutV6').participantCount, 2n);
+    await send(f.client, f.settlement.write.claim([2n], { account: f.alice.account }));
+    assert.equal(await f.sink.read.claimedTotal([2n, f.alice.account.address]), 5_000_000n);
+
+    await send(f.client, f.settlement.write.pauseSettlement([false], { account: f.guardian.account }));
+    await send(f.client, f.registry.write.callBindPactV6([f.settlement.address, 3n]));
+    assert.equal(await f.settlement.read.pactVerifier([3n]), f.verifier.address);
+  });
+
+  it('revokes a pinned verifier for its Pacts and refuses new bindings to a revoked key', async () => {
+    const f = await fixture();
+    const endAt = (await f.now()) + DAY;
+    const members = [f.alice.account.address, f.bob.account.address];
+    const allocations = [allocation(members[0], 10_000_000n)];
+    await f.configure(1n, { participants: members, distributable: 10_000_000n, endAt });
+    await expectError(f.settlement.write.setVerifierRevoked([f.verifier.address, true],
+      { account: f.outsider.account }), 'NotGuardian');
+    await expectError(f.settlement.write.setVerifierRevoked([zeroAddress, true],
+      { account: f.guardian.account }), 'InvalidConfiguration');
+    const revoked = await send(f.client, f.settlement.write.setVerifierRevoked([f.verifier.address, true],
+      { account: f.guardian.account }));
+    assert.deepEqual(event(revoked, 'VerifierRevokedV6'), { verifier: f.verifier.address, revoked: true });
+    assert.equal(await f.settlement.read.revokedVerifier([f.verifier.address]), true);
+
+    await expectError(f.settle(await f.signed(allocations), allocations), 'VerifierRevoked');
+    await expectError(f.registry.write.callBindPactV6([f.settlement.address, 2n]), 'VerifierRevoked');
+
+    await send(f.client, f.settlement.write.setVerifierRevoked([f.verifier.address, false],
+      { account: f.guardian.account }));
+    await f.settle(await f.signed(allocations), allocations);
+    assert.equal(await f.sink.read.credited([1n, members[0]]), 10_000_000n);
+  });
+
+  it('has an immutable verifier and no rotation surface', async () => {
+    const f = await fixture();
+    assert.equal(await f.settlement.read.verifier(), f.verifier.address);
+    for (const name of ['proposeVerifier', 'applyVerifier', 'cancelVerifierProposal', 'pendingVerifier',
+      'pendingVerifierAppliesAt', 'VERIFIER_ROTATION_DELAY']) {
+      assert.equal(artifact.abi.some((item) => item.name === name), false, `${name} must not exist`);
+    }
+    assert.equal(await f.settlement.read.challengeWindow(), Number(CHALLENGE_WINDOW));
+  });
+
+  it('accepts an EIP-1271 contract verifier and rejects a wrong magic value', async () => {
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const f = await fixture({ contractVerifierOwner: owner });
+    const { contractVerifier } = f;
+
+    const endAt = (await f.now()) + DAY;
+    const members = [f.alice.account.address, f.bob.account.address];
+    const allocations = [allocation(members[0], 4_000_000n), allocation(members[1], 6_000_000n)];
+    await f.configure(1n, { participants: members, distributable: 10_000_000n, endAt });
+    assert.equal((await f.settlement.read.pactVerifier([1n])).toLowerCase(), contractVerifier.address.toLowerCase());
+
+    await expectError(f.settle(await f.signed(allocations), allocations), 'InvalidVerifierSignature');
+    await send(f.client, contractVerifier.write.setBroken([true]));
+    await expectError(f.settle(await f.signed(allocations, {}, { signer: owner }), allocations), 'InvalidVerifierSignature');
+    await send(f.client, contractVerifier.write.setBroken([false]));
+    const receipt = await f.settle(await f.signed(allocations, {}, { signer: owner }), allocations);
+    assert.equal(event(receipt, 'SettledV6').verifier.toLowerCase(), contractVerifier.address.toLowerCase());
+    assert.equal(await f.sink.read.credited([1n, members[1]]), 6_000_000n);
+  });
+
+  it('refuses to construct against a codeless registry, a foreign sink or a guardian that is the verifier', async () => {
+    const f = await fixture();
+    const attempt = (args) => assert.rejects(send(f.client, f.deployer.deployContract({ abi: artifact.abi,
+      bytecode: artifact.bytecode, args })));
+    const verifier = f.verifier.address, guardian = f.guardian.account.address;
+    const window = Number(CHALLENGE_WINDOW);
+    await attempt([f.outsider.account.address, verifier, f.sink.address, guardian, window]);
+    await attempt([f.registry.address, verifier, f.outsider.account.address, guardian, window]);
+    await attempt([f.registry.address, verifier, f.sink.address, verifier, window]);
+    await attempt([f.registry.address, verifier, f.sink.address, zeroAddress, window]);
+    // The challenge window is bounded to [1 h, 7 d].
+    for (const bad of [0, 3_599, 7 * 86_400 + 1]) await attempt([f.registry.address, verifier, f.sink.address, guardian, bad]);
+    for (const good of [3_600, 86_400, 7 * 86_400]) {
+      const receipt = await send(f.client, f.deployer.deployContract({ abi: artifact.abi, bytecode: artifact.bytecode,
+        args: [f.registry.address, verifier, f.sink.address, guardian, good] }));
+      assert.ok(receipt.contractAddress);
+    }
   });
 });

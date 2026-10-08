@@ -26,7 +26,9 @@ const SOURCE_NAMES = [
 // shrunken artifact must fail the compile gate instead of passing the size check alone.
 const REQUIRED_FUNCTIONS = {
   PactSettlementModuleV6: ['settleV6', 'refundTimedOutV6', 'claim', 'validateAllocations',
-    'settlementWindowClosesAt', 'settlementDigest', 'domainSeparator'],
+    'settlementWindowClosesAt', 'settlementDigest', 'domainSeparator', 'bindPactV6', 'pactVerifier',
+    'guardian', 'verifier', 'pauseSettlement', 'setVerifierRevoked', 'settlementPaused', 'revokedVerifier',
+    'settleable', 'challengeWindow', 'pendingPayout', 'finalizeSettlementV6', 'vetoSettlementV6'],
   PactRegistryV6: ['createWalkingPactV6', 'createRollingWalkingPactV6', 'createWorkingPactV6',
     'activatePactV6', 'joinWalkingPactV6', 'joinWorkingPactV6', 'leaveWalkingPactV6',
     'leaveWorkingPactV6', 'exitWalkingPactV6', 'exitWorkingPactV6', 'rotateInviteSigner',
@@ -38,7 +40,10 @@ const REQUIRED_FUNCTIONS = {
   PactVaultV6: ['deposit', 'release', 'exit', 'payout', 'refundPayout', 'claim', 'claimFor', 'claimTo',
     'lockRollover', 'moveRolloverReserve', 'releaseRolloverReserve', 'pool', 'unallocatedPool',
     'rolloverReserve', 'claimable', 'paidOut', 'contribution', 'rolloverPrincipal', 'principalOf',
-    'rolloverState', 'stakeToken', 'registry', 'module', 'workingModule'],
+    'rolloverState', 'stakeToken', 'registry', 'module', 'workingModule',
+    // Commission generation (manifest module version 3).
+    'payoutAfterCommission', 'commissionOn', 'commissionBps', 'operatorShareOfCommissionBps',
+    'operatorRecipient', 'companyRecipient', 'MAX_COMMISSION_BPS'],
 };
 
 function contractArtifact(output, file, name) {

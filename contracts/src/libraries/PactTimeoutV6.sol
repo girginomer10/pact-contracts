@@ -7,17 +7,20 @@ pragma solidity ^0.8.24;
 ///
 ///   evidenceClosesAt   = endAt + evidenceGrace
 ///   reviewClosesAt     = evidenceClosesAt + 24 hours
-///   settlementClosesAt = reviewClosesAt + 24 hours
+///   settlementClosesAt = reviewClosesAt + 72 hours
 ///
 /// All windows are half-open: evidence until `evidenceClosesAt`, review from
 /// `evidenceClosesAt` to `reviewClosesAt`, normal settlement from `reviewClosesAt` to
-/// `settlementClosesAt`, and the timeout refund from `settlementClosesAt` onward. Fails closed
-/// on uint40 overflow.
+/// `settlementClosesAt`, and the timeout refund from `settlementClosesAt` onward (from
+/// `reviewClosesAt` once the Pact's pinned verifier is revoked; the module owns that rule).
+/// The 72-hour settlement window lets the keeper or a member settle through up to three days of
+/// server downtime before the result is lost to the equal refund. Fails closed on uint40
+/// overflow.
 library PactTimeoutV6 {
     error InvalidTimeout();
 
     uint40 internal constant REVIEW_WINDOW = 24 hours;
-    uint40 internal constant SETTLEMENT_WINDOW = 24 hours;
+    uint40 internal constant SETTLEMENT_WINDOW = 72 hours;
 
     function windows(uint40 endAt, uint40 evidenceGrace)
         internal pure returns (uint40 evidenceClosesAt, uint40 reviewClosesAt, uint40 settlementClosesAt)

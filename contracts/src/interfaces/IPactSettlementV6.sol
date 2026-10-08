@@ -32,8 +32,23 @@ interface IPactSettlementV6 {
         bytes32 termsHash, bytes32 allocationsHash, bytes32 nonce, uint8 outcome, uint256 distributable);
     event RefundTimedOutV6(uint256 indexed pactId, uint256 participantCount, uint256 distributable);
     event ClaimV6(uint256 indexed pactId, address indexed recipient, uint256 amount, bool refundPath);
+    /// @dev The registry bound a new Pact to this module; `verifier` is pinned for its lifetime.
+    event PactBoundV6(uint256 indexed pactId, address indexed verifier);
+    /// @dev Guardian incident levers. None of them moves funds to a chosen recipient or
+    /// changes a written outcome; the strongest one replaces a pending split with the
+    /// deterministic equal split.
+    event SettlementPausedV6(bool paused);
+    event VerifierRevokedV6(address indexed verifier, bool revoked);
+    /// @dev A verified outcome 0/2 split waiting out the challenge window. The allocations are
+    /// in the event so anyone can finalize without decoding the settlement calldata.
+    event SettlementPendingV6(uint256 indexed pactId, bytes32 allocationsHash, uint40 opensAt,
+        Allocation[] allocations);
+    event SettlementFinalizedV6(uint256 indexed pactId, address indexed caller, bytes32 allocationsHash);
+    event SettlementVetoedV6(uint256 indexed pactId, address indexed caller, bool byGuardian,
+        uint256 participantCount, uint256 distributable);
 
     error NotRegistry();
+    error NotGuardian();
     error InvalidConfiguration();
     error UnexpectedSettlementKind();
     error AuthorizationExpired();
@@ -43,6 +58,7 @@ interface IPactSettlementV6 {
     error AllocationsHashMismatch();
     error NonEmptyRolloverAllocations();
     error GenerationMismatch();
+    error InvalidOutcome();
     error InvalidParticipant();
     error InvalidVerifierSignature();
     error TimeoutNotReached();
@@ -51,13 +67,28 @@ interface IPactSettlementV6 {
     error InvalidRefundRecipient();
     error NothingToClaim();
     error ReentrantCall();
+    error SettlementPaused();
+    error VerifierRevoked();
+    error PactNotBound();
+    error PactAlreadyBound();
+    error OutcomeAllocationMismatch();
+    error SettlementNotPending();
+    error ChallengeWindowOpen();
 
     function settleV6(SettlementAuthorization calldata authorization,
         Allocation[] calldata allocations, bytes calldata verifierSignature) external;
 
-    /// @notice Registry-only liveness escape. The registry owns the timing decision; this
-    /// function only materializes the deterministic full-refund split.
+    /// @notice Registry-only liveness escape. The registry writes `Refunded`; this module owns
+    /// the timing (`settlementClosesAt`, or `reviewClosesAt` once the pinned verifier is
+    /// revoked) and materializes the deterministic equal split.
     function refundTimedOutV6(uint256 pactId) external;
+
+    /// @notice Credits a pending outcome 0/2 split once its challenge window has passed.
+    function finalizeSettlementV6(uint256 pactId, Allocation[] calldata allocations) external;
+
+    /// @notice Replaces a pending split with the deterministic equal split (guardian, or anyone
+    /// once the Pact's pinned verifier is revoked).
+    function vetoSettlementV6(uint256 pactId) external;
 
     /// @notice Pays a previously credited claimable amount. There is no recipient parameter:
     /// funds can only move to the account that owns the credit.
