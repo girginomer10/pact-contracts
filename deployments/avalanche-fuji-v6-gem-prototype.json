@@ -1,0 +1,91 @@
+{
+  "schema": "pact-gem-fuji-deployment-v6",
+  "generation": "gem",
+  "chainId": 43113,
+  "contractVersion": "6",
+  "release": "unaudited-fuji-prototype",
+  "registry": {
+    "address": "0x4B567feDdEaa8E464a32F599F92AF19AE02FbA04",
+    "runtimeCodeHash": "0x53211c0f9787479925e9a96e9c88f0ad934aa8b409548ecf4a39d194511f09be"
+  },
+  "vault": {
+    "address": "0x275e11A3DD34C68234291a3aecdD3EA8231E6a78",
+    "runtimeCodeHash": "0xdfa72a145c72911a390e39d5748d3dbc03eb67777bfc0bd6471eb6c0a8c4b125"
+  },
+  "stakeToken": {
+    "address": "0x5363a4A19e5aDAA02b85D4d72066214299Bf6f46",
+    "runtimeCodeHash": "0xf5529aa9ad3827d30d2ffac3c81373b266e3cc40602876e73495e43176d4448e",
+    "kind": "pact-gem",
+    "minterAddress": "0x79f5A9b1653a3C41AdedEab7e45FFa8d20BbE997"
+  },
+  "catCards": {
+    "address": "0x3538E2Ad1e9CC0e2e97E0C9352406936f72bB49E",
+    "runtimeCodeHash": "0x4dd80ae8e7a676e9c6d75b1eee486548575dfb996cc7979df0f111e9400123af",
+    "minterAddress": "0x79f5A9b1653a3C41AdedEab7e45FFa8d20BbE997"
+  },
+  "settlementModules": {
+    "walking": {
+      "address": "0x7e2d4443d461cEd7A261a7A64088E6De1AFE497B",
+      "runtimeCodeHash": "0xa3bf178bee8fd26bed11b39c1510c6864c927c0077652ba6062504cbe1be0a55",
+      "domainId": 0,
+      "verifierAddress": "0x6dB9055593D8B77d6A9B40353e7f61E6884580D0",
+      "verifierDomain": {
+        "name": "PactSettlementModuleV6",
+        "version": "1",
+        "chainId": 43113,
+        "verifyingContract": "0x7e2d4443d461cEd7A261a7A64088E6De1AFE497B"
+      },
+      "minEvidenceGraceSeconds": 7200,
+      "maxEvidenceGraceSeconds": 7200,
+      "allowsRolling": true
+    },
+    "working": {
+      "address": "0x0666Ba7Cc3bCeEf4e5Db79bC7825dee3Ee7b7bE5",
+      "runtimeCodeHash": "0x6d87b8f515d0b9090fd00e19a6f1a894dc13e59fce964b5df648591453de2864",
+      "domainId": 1,
+      "verifierAddress": "0xc389ED126Fc05E745C156e44304Bee857e394409",
+      "verifierDomain": {
+        "name": "PactSettlementModuleV6",
+        "version": "1",
+        "chainId": 43113,
+        "verifyingContract": "0x0666Ba7Cc3bCeEf4e5Db79bC7825dee3Ee7b7bE5"
+      },
+      "minEvidenceGraceSeconds": 0,
+      "maxEvidenceGraceSeconds": 86400,
+      "allowsRolling": false
+    },
+    "proof": {
+      "address": "0xB1822298a40aD9e24BbCbFC09cE4C5c0D82FCB54",
+      "runtimeCodeHash": "0x31532e836b142d403e841061a481e81ecc1519e2a415c1c8cc878e7119beb3da",
+      "domainId": 2,
+      "verifierAddress": "0x1E82401289254A0B8Af445A749Fc08277aea5cA3",
+      "verifierDomain": {
+        "name": "PactSettlementModuleV6",
+        "version": "1",
+        "chainId": 43113,
+        "verifyingContract": "0xB1822298a40aD9e24BbCbFC09cE4C5c0D82FCB54"
+      },
+      "minEvidenceGraceSeconds": 0,
+      "maxEvidenceGraceSeconds": 86400,
+      "allowsRolling": true
+    }
+  },
+  "timing": {
+    "reviewWindowSeconds": 7200,
+    "settlementWindowSeconds": 259200,
+    "challengeWindowSeconds": 3600
+  },
+  "commissionBps": 0,
+  "inviteSignerAddress": "0x365ff2dE36a30C96a90635796c62E8b03460b7cd",
+  "guardianAddress": "0xAd58B4B3bf9C1DD3b3af3BC88738812B6EBD8121",
+  "generationId": "0x755f0af94e7fb1709c00fcc660c5559b209c82b914510366b5b4c989ddac0cfe",
+  "deploymentBlockNumber": "59391986",
+  "deploymentBlockHash": "0x7a372734f7d4626bb5980a78e894403dfa5236af76f93430c5d77abe234adcdd",
+  "deploymentTransactionHash": "0xd9c22b183a5d8297579021e2aaef0aacfd1eb3770253064fe5554548f4b391d3",
+  "deploymentContractAddress": "0x4B567feDdEaa8E464a32F599F92AF19AE02FbA04",
+  "deployerAddress": "0xfC766E794B6A3A17141d699F094FF6C560B12929",
+  "sourceSha256": "55e50862f34b5417cd196c15578230385d1abdbac77a41aeace1680ebd7c40b3",
+  "compiler": "0.8.30+commit.73712a01.Emscripten.clang",
+  "evmVersion": "cancun",
+  "optimizerRuns": 1
+}

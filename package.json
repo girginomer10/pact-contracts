@@ -11,7 +11,8 @@
   "scripts": {
     "compile": "node scripts/pact-settlement-v6-artifact.mjs",
     "test": "npm run compile && node scripts/run-tests.mjs",
-    "verify:bytecode": "node scripts/verify-fuji-bytecode.mjs"
+    "verify:bytecode": "node scripts/verify-fuji-bytecode.mjs",
+    "verify:gem-bytecode": "node scripts/verify-fuji-gem-bytecode.mjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-network-helpers": "3.0.11",

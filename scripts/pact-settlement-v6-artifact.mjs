@@ -46,6 +46,51 @@ const REQUIRED_FUNCTIONS = {
     'operatorRecipient', 'companyRecipient', 'MAX_COMMISSION_BPS'],
 };
 
+/** Gem generation (Fuji only): its own source set so the USDC generation's `sourceSha256` and
+ * runtime code hashes stay byte-identical. The settlement module is the same contract. */
+const GEM_SOURCE_NAMES = [
+  'PactGemV6.sol',
+  'PactCatCardsV6.sol',
+  'PactGemRegistryV6.sol',
+  'PactGemVaultV6.sol',
+  'PactSettlementModuleV6.sol',
+  'interfaces/IPactGemVaultV6.sol',
+  'interfaces/IPactSettlementV6.sol',
+  'interfaces/IPactSettlementRegistryV6.sol',
+  'interfaces/IPactSettlementSinkV6.sol',
+  'interfaces/IPactSettlementModuleV6.sol',
+  'interfaces/IPactERC20V6.sol',
+  'libraries/PactAllocationsV6.sol',
+  'libraries/PactTimeoutV6.sol',
+];
+
+/** Every gem-generation contract stays this far below EIP-170, so a later fix has room. */
+export const PACT_GEM_RUNTIME_MARGIN = 2_048;
+
+const GEM_REQUIRED_FUNCTIONS = {
+  PactGemV6: ['name', 'symbol', 'decimals', 'totalSupply', 'balanceOf', 'allowance', 'approve', 'transfer',
+    'transferFrom', 'mint', 'mintBatch', 'burn', 'minter', 'vault'],
+  PactCatCardsV6: ['mint', 'mintBatch', 'balanceOf', 'balanceOfBatch', 'isApprovedForAll', 'setApprovalForAll',
+    'safeTransferFrom', 'safeBatchTransferFrom', 'uri', 'contractURI', 'supportsInterface', 'minter', 'totalSupply'],
+  PactGemRegistryV6: ['createPactV6', 'activatePactV6', 'joinPactV6', 'leavePactV6', 'exitPactV6', 'cancelPactV6',
+    'settlePactV6', 'refundPactV6', 'rotateInviteSigner', 'blockRecipient', 'unblockRecipient',
+    'pactSettlementKind', 'pactSettlementTerms', 'settlementParticipantAt', 'isActiveParticipant',
+    'invitePermitDigest', 'generationId', 'domainCount', 'domainConfig', 'windowsFor', 'reviewWindow',
+    'settlementWindow', 'vault', 'stakeToken', 'pacts'],
+  PactGemVaultV6: ['deposit', 'release', 'exit', 'payout', 'payoutAfterCommission', 'refundPayout', 'claim',
+    'claimFor', 'claimTo', 'pool', 'unallocatedPool', 'claimable', 'paidOut', 'deposited', 'contribution',
+    'principalOf', 'stakeToken', 'registry', 'moduleCount', 'moduleAt', 'isModule', 'commissionBps'],
+  PactSettlementModuleV6: REQUIRED_FUNCTIONS.PactSettlementModuleV6,
+};
+
+/** Surface that must NOT exist in the gem generation (rollover and the per-domain duplicates). */
+const GEM_FORBIDDEN_FUNCTIONS = {
+  PactGemV6: ['permit', 'increaseAllowance', 'decreaseAllowance', 'burnFrom'],
+  PactGemRegistryV6: ['approveRolloverV6', 'rejectRolloverV6', 'releaseRolloverV6', 'activateWithRolloverV6',
+    'rolloverOf', 'createWalkingPactV6', 'joinWalkingPactV6', 'settleWalkingPactV6'],
+  PactGemVaultV6: ['lockRollover', 'moveRolloverReserve', 'releaseRolloverReserve', 'rolloverReserve'],
+};
+
 function contractArtifact(output, file, name) {
   const contract = output.contracts[`contracts/src/${file}`]?.[name];
   if (!contract?.evm?.bytecode?.object || !contract?.evm?.deployedBytecode?.object) {
@@ -60,12 +105,12 @@ function contractArtifact(output, file, name) {
   };
 }
 
-export function compilePactSettlementV6Artifact() {
-  const sources = Object.fromEntries(SOURCE_NAMES.map((name) => [
+function compileSources(sourceNames) {
+  const sources = Object.fromEntries(sourceNames.map((name) => [
     `contracts/src/${name}`,
     { content: readFileSync(new URL(`../contracts/src/${name}`, import.meta.url), 'utf8') },
   ]));
-  const canonicalSource = SOURCE_NAMES.map((name) =>
+  const canonicalSource = sourceNames.map((name) =>
     `// contracts/src/${name}\n${sources[`contracts/src/${name}`].content}`).join('\n');
   const sourceSha256 = createHash('sha256').update(canonicalSource).digest('hex');
   const input = {
@@ -85,11 +130,36 @@ export function compilePactSettlementV6Artifact() {
   const errors = (output.errors ?? []).filter(({ severity }) => severity === 'error');
   if (errors.length) throw new Error(errors.map(({ formattedMessage }) => formattedMessage).join('\n'));
   return {
+    output,
     sourceSha256,
     sources: Object.freeze(Object.fromEntries(Object.entries(sources).map(([name, value]) => [name, value.content]))),
+  };
+}
+
+export function compilePactSettlementV6Artifact() {
+  const { output, sourceSha256, sources } = compileSources(SOURCE_NAMES);
+  return {
+    sourceSha256,
+    sources,
     module: contractArtifact(output, 'PactSettlementModuleV6.sol', 'PactSettlementModuleV6'),
     registry: contractArtifact(output, 'PactRegistryV6.sol', 'PactRegistryV6'),
     vault: contractArtifact(output, 'PactVaultV6.sol', 'PactVaultV6'),
+  };
+}
+
+/** Compiles the gem generation: gem token, cat cards, gem registry, gem vault and the shared
+ * settlement module (byte-identical to the USDC generation's module). */
+export function compilePactGemGenerationArtifact() {
+  const { output, sourceSha256, sources } = compileSources(GEM_SOURCE_NAMES);
+  return {
+    generation: 'gem',
+    sourceSha256,
+    sources,
+    gem: contractArtifact(output, 'PactGemV6.sol', 'PactGemV6'),
+    cards: contractArtifact(output, 'PactCatCardsV6.sol', 'PactCatCardsV6'),
+    registry: contractArtifact(output, 'PactGemRegistryV6.sol', 'PactGemRegistryV6'),
+    vault: contractArtifact(output, 'PactGemVaultV6.sol', 'PactGemVaultV6'),
+    module: contractArtifact(output, 'PactSettlementModuleV6.sol', 'PactSettlementModuleV6'),
   };
 }
 
@@ -134,6 +204,44 @@ export function assertPactSettlementV6Deployable(compiled = compilePactSettlemen
   return sizes.PactSettlementModuleV6;
 }
 
+function gemArtifacts(compiled) {
+  return {
+    PactGemV6: compiled.gem,
+    PactCatCardsV6: compiled.cards,
+    PactGemRegistryV6: compiled.registry,
+    PactGemVaultV6: compiled.vault,
+    PactSettlementModuleV6: compiled.module,
+  };
+}
+
+/** Runtime sizes of every deployable contract in the gem generation. */
+export function gemGenerationRuntimeSizes(compiled = compilePactGemGenerationArtifact()) {
+  return Object.fromEntries(Object.entries(gemArtifacts(compiled)).map(([name, artifact]) =>
+    [name, runtimeSize(artifact)]));
+}
+
+/** Fails closed unless every gem-generation contract is at least `PACT_GEM_RUNTIME_MARGIN`
+ * bytes below EIP-170, exposes its required surface and lacks the removed one. */
+export function assertPactGemGenerationDeployable(compiled = compilePactGemGenerationArtifact()) {
+  const sizes = gemGenerationRuntimeSizes(compiled);
+  for (const [name, size] of Object.entries(sizes)) {
+    assert.ok(size + PACT_GEM_RUNTIME_MARGIN <= PACT_SETTLEMENT_V6_RUNTIME_LIMIT,
+      `${name} runtime ${size} bytes leaves less than ${PACT_GEM_RUNTIME_MARGIN} bytes below EIP-170`);
+  }
+  const artifacts = gemArtifacts(compiled);
+  const functionsOf = (name) => new Set(artifacts[name].abi.filter((entry) => entry.type === 'function')
+    .map((entry) => entry.name));
+  for (const [contractName, required] of Object.entries(GEM_REQUIRED_FUNCTIONS)) {
+    const functions = functionsOf(contractName);
+    for (const name of required) assert.ok(functions.has(name), `${contractName}.${name} missing from ABI`);
+  }
+  for (const [contractName, forbidden] of Object.entries(GEM_FORBIDDEN_FUNCTIONS)) {
+    const functions = functionsOf(contractName);
+    for (const name of forbidden) assert.ok(!functions.has(name), `${contractName}.${name} must not exist`);
+  }
+  return sizes;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const compiled = compilePactSettlementV6Artifact();
   assertPactSettlementV6Deployable(compiled);
@@ -142,4 +250,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     `${name} ${size} bytes (margin ${PACT_SETTLEMENT_V6_RUNTIME_LIMIT - size})`).join(', ');
   console.log(`Pact Settlement V6 system compiled for ${PACT_SETTLEMENT_V6_EVM_VERSION} ` +
     `(solc ${PACT_SETTLEMENT_V6_COMPILER_VERSION}): ${summary}, source ${compiled.sourceSha256.slice(0, 12)}.`);
+  const gem = compilePactGemGenerationArtifact();
+  const gemSizes = assertPactGemGenerationDeployable(gem);
+  const gemSummary = Object.entries(gemSizes).map(([name, size]) =>
+    `${name} ${size} bytes (margin ${PACT_SETTLEMENT_V6_RUNTIME_LIMIT - size})`).join(', ');
+  console.log(`Pact gem generation compiled: ${gemSummary}, source ${gem.sourceSha256.slice(0, 12)}.`);
 }

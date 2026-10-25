@@ -4,14 +4,67 @@ Solidity contracts behind [Pact](https://pactside.com), an iPhone and Mac app fo
 commitments with friends. Friends agree on a goal, each puts a small stake into a shared pool,
 and the pool is split by the result when the Pact ends.
 
+There are two contract generations on Fuji:
+
+- **The gem generation** (13 October 2026) is what the current app uses. The stake is *gems*,
+  an earn-only token with no monetary value, and collectible cat cards are soulbound tokens. See
+  [Gem generation](#gem-generation-used-by-the-current-app).
+- **The USDC generation** (8 October 2026) takes test USDC and charges a 5% commission on net
+  winnings. It is deployed and verified but not used by the current app. The sections from
+  [How a Pact works on-chain](#how-a-pact-works-on-chain) to
+  [Previous deployments](#previous-deployments) describe it.
+
 > **Status: unaudited prototype, Avalanche Fuji testnet only.** These contracts have not had
-> an independent security review. They are deployed only on Fuji and hold test USDC only. Do
+> an independent security review. They are deployed only on Fuji and hold only test USDC and
+> zero-value gems. Do
 > not use them with real funds. The constructors accept Fuji (43113), Avalanche C-Chain
 > (43114) and a local test chain (31337); a mainnet deployment would need an explicit owner
 > decision and an independent audit first, and neither has happened.
 >
 > **The sources here are exactly what runs on Fuji.** Some code comments are out of date. They
 > are left unchanged on purpose. See [Source comments](#source-comments).
+
+## Gem generation (used by the current app)
+
+Deployed on Fuji at block 59391986 (13 October 2026) by one deployer in seven consecutive
+transactions. All seven contracts are source-verified on Routescan/Snowtrace.
+
+| Contract | Address | Source |
+|---|---|---|
+| PactGemV6 (gem token) | [`0x5363a4A19e5aDAA02b85D4d72066214299Bf6f46`](https://testnet.snowtrace.io/address/0x5363a4A19e5aDAA02b85D4d72066214299Bf6f46) | [Verified](https://testnet.snowtrace.io/address/0x5363a4A19e5aDAA02b85D4d72066214299Bf6f46/contract/43113/code) |
+| PactGemVaultV6 | [`0x275e11A3DD34C68234291a3aecdD3EA8231E6a78`](https://testnet.snowtrace.io/address/0x275e11A3DD34C68234291a3aecdD3EA8231E6a78) | [Verified](https://testnet.snowtrace.io/address/0x275e11A3DD34C68234291a3aecdD3EA8231E6a78/contract/43113/code) |
+| PactGemRegistryV6 | [`0x4B567feDdEaa8E464a32F599F92AF19AE02FbA04`](https://testnet.snowtrace.io/address/0x4B567feDdEaa8E464a32F599F92AF19AE02FbA04) | [Verified](https://testnet.snowtrace.io/address/0x4B567feDdEaa8E464a32F599F92AF19AE02FbA04/contract/43113/code) |
+| PactSettlementModuleV6 (Walking) | [`0x7e2d4443d461cEd7A261a7A64088E6De1AFE497B`](https://testnet.snowtrace.io/address/0x7e2d4443d461cEd7A261a7A64088E6De1AFE497B) | [Verified](https://testnet.snowtrace.io/address/0x7e2d4443d461cEd7A261a7A64088E6De1AFE497B/contract/43113/code) |
+| PactSettlementModuleV6 (Working) | [`0x0666Ba7Cc3bCeEf4e5Db79bC7825dee3Ee7b7bE5`](https://testnet.snowtrace.io/address/0x0666Ba7Cc3bCeEf4e5Db79bC7825dee3Ee7b7bE5) | [Verified](https://testnet.snowtrace.io/address/0x0666Ba7Cc3bCeEf4e5Db79bC7825dee3Ee7b7bE5/contract/43113/code) |
+| PactSettlementModuleV6 (Proof) | [`0xB1822298a40aD9e24BbCbFC09cE4C5c0D82FCB54`](https://testnet.snowtrace.io/address/0xB1822298a40aD9e24BbCbFC09cE4C5c0D82FCB54) | [Verified](https://testnet.snowtrace.io/address/0xB1822298a40aD9e24BbCbFC09cE4C5c0D82FCB54/contract/43113/code) |
+| PactCatCardsV6 | [`0x3538E2Ad1e9CC0e2e97E0C9352406936f72bB49E`](https://testnet.snowtrace.io/address/0x3538E2Ad1e9CC0e2e97E0C9352406936f72bB49E) | [Verified](https://testnet.snowtrace.io/address/0x3538E2Ad1e9CC0e2e97E0C9352406936f72bB49E/contract/43113/code) |
+
+The manifest, with runtime code hashes, the minter, invite signer and guardian addresses and
+the timing, is in
+[`deployments/avalanche-fuji-v6-gem-prototype.json`](deployments/avalanche-fuji-v6-gem-prototype.json).
+
+How it differs from the USDC generation:
+
+- **Gems are restricted.** `PactGemV6` is an ERC-20 with 6 decimals and an immutable minter.
+  The only movements are a mint by the minter, holder to vault (the vault's own
+  `transferFrom`), vault to holder, and a holder burning its own gems. `approve` works only for
+  the vault. The minter cannot burn. Gems cannot be bought, sold or sent to another person.
+- **Cat cards are soulbound.** `PactCatCardsV6` is an ERC-1155 whose transfers and approvals
+  always revert; only the minter can mint.
+- **One registry, three domains.** `PactGemRegistryV6` runs Walking (0), Working (1) and Proof
+  (2) pacts, each with its own settlement module and verifier. Every action names the domain it
+  expects. The settlement module is the same contract as in the USDC generation.
+- **No rollover and no commission** (the vault's commission is the constant 0).
+- **Timing:** 2-hour review window, 72-hour settlement window, 1-hour challenge window. After
+  the settlement window anyone can trigger the refund.
+- **Fuji only.** Every gem contract refuses any chain but Fuji (43113) and a local test chain
+  (31337) in its constructor. Mainnet would need a new, audited generation.
+- **Solo pacts are not on chain**, and a shared pact is registered on chain only when every
+  member has an account wallet. The app's database stays the source of truth.
+
+The first gem-registry pact settled on 19 October 2026 in
+[`0x6997f716…daae`](https://testnet.snowtrace.io/tx/0x6997f716f3ead54331bbbcf9e047a935a929f737b6f6e7134577ae1197cbdaae):
+a two-person photo-proof pact where nobody sent proof, so each member got their 50 gems back.
 
 ## How a Pact works on-chain
 
@@ -196,8 +249,12 @@ Requires Node.js 22 or later.
 ```bash
 npm ci
 npm test                  # compiles with solc 0.8.30 and runs 91 tests on an in-process Hardhat network
-npm run verify:bytecode   # rebuilds and compares against the live Fuji contracts
+npm run verify:bytecode   # rebuilds and compares against the live Fuji contracts (USDC generation)
+npm run verify:gem-bytecode   # the same for the seven gem-generation contracts
 ```
+
+The gem generation's test suite is not published here yet; it depends on the private deploy
+tooling. `verify:gem-bytecode` is the reproducibility check for it.
 
 The tests deploy the vault without a commission. The commission arithmetic is not covered by
 this suite.
@@ -213,7 +270,9 @@ optimizer enabled with `runs: 1`. They are defined in
 - the creation transaction starts with the compiled creation code.
 
 `node scripts/verify-fuji-bytecode.mjs --write` also writes the Standard JSON input and the
-constructor arguments used for explorer verification to `verification/`.
+constructor arguments used for explorer verification to `verification/`;
+`node scripts/verify-fuji-gem-bytecode.mjs --write` writes the gem generation's to
+`verification/gem/`.
 
 ## Source comments
 
@@ -226,6 +285,8 @@ The sources are published exactly as deployed on Fuji. Some NatSpec comments are
   project notes and are not in this repository.
 - The registry and vault say "The bytecode accepts Avalanche Fuji and Avalanche C-Chain". That
   is what the code allows; the contracts are deployed only on Fuji.
+- `PactGemRegistryV6` points to `docs/architecture/gem-generation.md`, an internal note that is
+  not in this repository. The gem section of this README covers the same ground.
 
 Solidity puts a hash of the source files, comments included, into the compiled bytecode.
 Changing any comment would mean redeploying the contracts. It would also break the byte-for-byte
